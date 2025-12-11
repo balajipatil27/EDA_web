@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML Data Preprocessing & Model Comparison</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-robot"></i> ML Data Preprocessor & Model Analyzer</h1>
+            <p class="subtitle">Upload your dataset, preprocess it, and compare model performance</p>
+            <div class="version-badge">v2.0</div>
+        </header>
+
+        <div class="app-container">
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <div class="step active" data-step="1">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Upload Dataset</h3>
+                        <p>Upload your CSV or Excel file</p>
+                    </div>
+                </div>
+                <div class="step" data-step="2">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Analyze Data</h3>
+                        <p>View dataset statistics and information</p>
+                    </div>
+                </div>
+                <div class="step" data-step="3">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Preprocess Data</h3>
+                        <p>Clean and transform your data</p>
+                    </div>
+                </div>
+                <div class="step" data-step="4">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h3>Train Models</h3>
+                        <p>Compare model performance</p>
+                    </div>
+                </div>
+                <div class="step" data-step="5">
+                    <div class="step-number">5</div>
+                    <div class="step-content">
+                        <h3>Results & Download</h3>
+                        <p>View results and download processed data</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="main-content">
+                <!-- Step 1: Upload Dataset -->
+                <div id="step-1" class="step-content active">
+                    <h2><i class="fas fa-upload"></i> Upload Your Dataset</h2>
+                    <div class="upload-info">
+                        <div class="info-box">
+                            <i class="fas fa-info-circle"></i>
+                            <p>Supported formats: CSV, Excel (.xlsx, .xls). Maximum file size: 500MB</p>
+                        </div>
+                        <div class="info-box mt-2" id="size-warning" style="display: none;">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p id="warning-message"></p>
+                        </div>
+                    </div>
+                    <div class="upload-area" id="drop-area">
+                        <i class="fas fa-cloud-upload-alt fa-3x"></i>
+                        <h3>Drag & Drop Your File Here</h3>
+                        <p>or click to browse</p>
+                        <p class="file-types">Supported formats: CSV, Excel (.xlsx, .xls)</p>
+                        <input type="file" id="file-input" accept=".csv,.xlsx,.xls" hidden>
+                        <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                            <i class="fas fa-folder-open"></i> Browse Files
+                        </button>
+                    </div>
+                    <div id="upload-progress" class="progress-container hidden">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="upload-progress-bar"></div>
+                        </div>
+                        <p id="upload-status">Uploading...</p>
+                    </div>
+                </div>
+
+                <!-- Step 2: Analyze Data -->
+                <div id="step-2" class="step-content">
+                    <h2><i class="fas fa-chart-bar"></i> Dataset Analysis</h2>
+                    <div id="dataset-info" class="hidden">
+                        <div class="info-cards">
+                            <div class="info-card">
+                                <h4><i class="fas fa-table"></i> Dataset Info</h4>
+                                <p><strong>File:</strong> <span id="file-name"></span></p>
+                                <p><strong>Rows:</strong> <span id="row-count"></span></p>
+                                <p><strong>Columns:</strong> <span id="col-count"></span></p>
+                                <p><strong>Duplicates:</strong> <span id="dup-count"></span></p>
+                            </div>
+                            <div class="info-card">
+                                <h4><i class="fas fa-columns"></i> Target Column</h4>
+                                <div class="form-group">
+                                    <label for="target-column">Select Target Column for Modeling:</label>
+                                    <select id="target-column" class="form-control">
+                                        <option value="">Select a column</option>
+                                    </select>
+                                    <small class="form-text">This column will be used as the target variable for model training</small>
+                                </div>
+                                <button id="analyze-btn" class="btn btn-primary mt-2">
+                                    <i class="fas fa-chart-line"></i> Run Detailed Analysis
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="data-quality-metrics" class="analysis-section hidden"></div>
+
+                        <div id="analysis-results" class="hidden">
+                            <h3><i class="fas fa-search"></i> Detailed Analysis</h3>
+                            <div id="column-analysis" class="analysis-section"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Preprocess Data -->
+                <div id="step-3" class="step-content">
+                    <h2><i class="fas fa-broom"></i> Data Preprocessing</h2>
+                    
+                    <div id="quick-actions" class="hidden">
+                        <h3><i class="fas fa-bolt"></i> Quick Actions</h3>
+                        <div class="quick-actions">
+                            <button id="quick-clean" class="quick-action-btn">
+                                <i class="fas fa-broom"></i> Quick Clean
+                            </button>
+                            <button id="auto-preprocess" class="quick-action-btn secondary">
+                                <i class="fas fa-robot"></i> Auto-Preprocess
+                            </button>
+                            <button id="get-suggestions-btn" class="quick-action-btn warning">
+                                <i class="fas fa-lightbulb"></i> Get Suggestions
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="preprocessing-suggestions" class="hidden"></div>
+
+                    <div id="preprocessing-controls" class="hidden">
+                        <div class="preprocess-options">
+                            <h3><i class="fas fa-tasks"></i> Preprocessing Options</h3>
+                            
+                            <div class="option-group">
+                                <h4><i class="fas fa-trash-alt"></i> Data Cleaning</h4>
+                                <div class="option-item">
+                                    <input type="checkbox" id="drop-high-missing" checked>
+                                    <label for="drop-high-missing">Drop columns with >50% missing values</label>
+                                </div>
+                                <div class="option-item">
+                                    <input type="checkbox" id="remove-duplicates" checked>
+                                    <label for="remove-duplicates">Remove duplicate rows</label>
+                                </div>
+                            </div>
+
+                            <div class="option-group">
+                                <h4><i class="fas fa-exchange-alt"></i> Data Type Conversion</h4>
+                                <div class="form-group">
+                                    <label>Select column and target type:</label>
+                                    <div class="form-row">
+                                        <select id="convert-column" class="form-control">
+                                        </select>
+                                        <select id="convert-type" class="form-control">
+                                            <option value="numeric">Numeric</option>
+                                            <option value="category">Category</option>
+                                            <option value="datetime">Date/Time</option>
+                                        </select>
+                                        <button id="add-conversion" class="btn btn-small btn-primary">
+                                            <i class="fas fa-plus"></i> Add
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="conversion-list"></div>
+                            </div>
+
+                            <div class="option-group">
+                                <h4><i class="fas fa-code"></i> Encoding (Categorical Columns)</h4>
+                                <div class="form-group">
+                                    <label>Select categorical column:</label>
+                                    <div class="form-row">
+                                        <select id="encode-column" class="form-control">
+                                        </select>
+                                        <select id="encode-method" class="form-control">
+                                            <option value="label">Label Encoding</option>
+                                            <option value="onehot">One-Hot Encoding</option>
+                                        </select>
+                                        <button id="add-encoding" class="btn btn-small btn-primary">
+                                            <i class="fas fa-plus"></i> Add
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="encoding-list"></div>
+                            </div>
+
+                            <div class="option-group">
+                                <h4><i class="fas fa-tint"></i> Handle Missing Values</h4>
+                                <div id="missing-handling-list"></div>
+                                <div class="form-group">
+                                    <label>Quick fill for all numeric columns:</label>
+                                    <div class="form-row">
+                                        <select id="quick-fill-method" class="form-control">
+                                            <option value="mean">Mean</option>
+                                            <option value="median">Median</option>
+                                            <option value="mode">Mode</option>
+                                            <option value="zero">Zero</option>
+                                        </select>
+                                        <button id="quick-fill-all" class="btn btn-small btn-info">
+                                            <i class="fas fa-magic"></i> Fill All Numeric
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="option-group">
+                                <h4><i class="fas fa-filter"></i> Outlier Removal (Numerical Columns Only)</h4>
+                                <div id="outlier-list"></div>
+                            </div>
+
+                            <div class="option-group">
+                                <h4><i class="fas fa-layer-group"></i> Batch Operations</h4>
+                                <div class="form-row">
+                                    <button id="batch-encode-categorical" class="btn btn-info">
+                                        <i class="fas fa-code"></i> Encode All Categorical
+                                    </button>
+                                    <select id="batch-encode-method" class="form-control">
+                                        <option value="label">Label Encoding</option>
+                                        <option value="onehot">One-Hot Encoding</option>
+                                    </select>
+                                </div>
+                                <div class="form-row mt-2">
+                                    <button id="batch-convert-numerical" class="btn btn-info">
+                                        <i class="fas fa-exchange-alt"></i> Convert All Numerical
+                                    </button>
+                                </div>
+                                <div class="form-row mt-2">
+                                    <button id="batch-remove-outliers" class="btn btn-warning">
+                                        <i class="fas fa-filter"></i> Remove Outliers (All Numerical)
+                                    </button>
+                                </div>
+                                <div id="batch-steps-list" class="mt-2"></div>
+                            </div>
+
+                            <div class="option-group">
+                                <h4><i class="fas fa-list-check"></i> Preprocessing Steps Summary</h4>
+                                <div id="preprocessing-steps-summary">
+                                    <p>No steps added yet. Add steps from above sections.</p>
+                                </div>
+                            </div>
+
+                            <div class="action-buttons">
+                                <button id="clear-steps" class="btn btn-secondary">
+                                    <i class="fas fa-trash"></i> Clear All Steps
+                                </button>
+                                <button id="apply-preprocessing" class="btn btn-primary">
+                                    <i class="fas fa-play"></i> Apply Preprocessing
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="preprocessing-results" class="hidden">
+                            <h3><i class="fas fa-clipboard-check"></i> Preprocessing Report</h3>
+                            <div id="preprocessing-report"></div>
+                            <div class="info-cards mt-3">
+                                <div class="info-card">
+                                    <h4><i class="fas fa-info-circle"></i> Processed Dataset Info</h4>
+                                    <p><strong>Rows:</strong> <span id="processed-rows"></span></p>
+                                    <p><strong>Columns:</strong> <span id="processed-cols"></span></p>
+                                    <p><strong>Remaining Missing Values:</strong> <span id="processed-missing"></span></p>
+                                </div>
+                                <div class="info-card">
+                                    <h4><i class="fas fa-chart-line"></i> Processing Performance</h4>
+                                    <p><strong>Rows Removed:</strong> <span id="rows-removed">0</span></p>
+                                    <p><strong>Columns Removed:</strong> <span id="cols-removed">0</span></p>
+                                    <p><strong>Outliers Removed:</strong> <span id="outliers-removed">0</span></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 4: Train Models -->
+                <div id="step-4" class="step-content">
+                    <h2><i class="fas fa-brain"></i> Model Training & Comparison</h2>
+                    <div id="model-training" class="hidden">
+                        <div class="model-selection">
+                            <h3><i class="fas fa-check-circle"></i> Select Models to Compare</h3>
+                            <p class="model-description">Select the machine learning models you want to compare.</p>
+                            
+                            <div class="model-grid">
+                                <div class="model-option">
+                                    <input type="checkbox" id="linear_regression" value="linear_regression">
+                                    <label for="linear_regression">
+                                        <i class="fas fa-chart-line"></i> Linear Regression
+                                        <span class="model-type">(Regression)</span>
+                                    </label>
+                                </div>
+                                <div class="model-option">
+                                    <input type="checkbox" id="logistic_regression" value="logistic_regression">
+                                    <label for="logistic_regression">
+                                        <i class="fas fa-sitemap"></i> Logistic Regression
+                                        <span class="model-type">(Classification)</span>
+                                    </label>
+                                </div>
+                                <div class="model-option">
+                                    <input type="checkbox" id="random_forest" value="random_forest" checked>
+                                    <label for="random_forest">
+                                        <i class="fas fa-tree"></i> Random Forest
+                                        <span class="model-type">(Both)</span>
+                                    </label>
+                                </div>
+                                <div class="model-option">
+                                    <input type="checkbox" id="decision_tree" value="decision_tree" checked>
+                                    <label for="decision_tree">
+                                        <i class="fas fa-project-diagram"></i> Decision Tree
+                                        <span class="model-type">(Both)</span>
+                                    </label>
+                                </div>
+                                <div class="model-option">
+                                    <input type="checkbox" id="svm" value="svm" checked>
+                                    <label for="svm">
+                                        <i class="fas fa-shield-alt"></i> Support Vector Machine
+                                        <span class="model-type">(Both)</span>
+                                    </label>
+                                </div>
+                                <div class="model-option">
+                                    <input type="checkbox" id="kmeans" value="kmeans">
+                                    <label for="kmeans">
+                                        <i class="fas fa-object-group"></i> K-Means Clustering
+                                        <span class="model-type">(Clustering)</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <button id="train-models-btn" class="btn btn-primary mt-3">
+                                <i class="fas fa-play"></i> Train & Compare Models
+                            </button>
+                        </div>
+
+                        <div id="training-progress" class="hidden">
+                            <h3><i class="fas fa-spinner fa-spin"></i> Training Models...</h3>
+                            <div class="progress-container">
+                                <div class="progress-bar">
+                                    <div class="progress-fill" id="training-progress-bar"></div>
+                                </div>
+                                <p id="training-status">Initializing...</p>
+                            </div>
+                            <div id="model-progress" class="model-progress-container"></div>
+                        </div>
+
+                        <div id="training-results" class="hidden">
+                            <h3><i class="fas fa-chart-line"></i> Model Comparison Results</h3>
+                            
+                            <div id="results-summary" class="summary-card"></div>
+                            
+                            <div id="results-table-container" class="table-section mt-3"></div>
+                            
+                            <div class="visualization-options mt-3">
+                                <h4><i class="fas fa-chart-bar"></i> Visualizations</h4>
+                                <div class="viz-buttons">
+                                    <button id="show-accuracy-chart" class="btn btn-small btn-info">
+                                        <i class="fas fa-chart-bar"></i> Accuracy Comparison
+                                    </button>
+                                    <button id="show-improvement-chart" class="btn btn-small btn-success">
+                                        <i class="fas fa-chart-line"></i> Improvement Chart
+                                    </button>
+                                </div>
+                                <div id="visualization-container" class="viz-container mt-2"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 5: Results & Download -->
+                <div id="step-5" class="step-content">
+                    <h2><i class="fas fa-download"></i> Results & Download</h2>
+                    <div id="final-results" class="hidden">
+                        <div class="summary-card">
+                            <h3><i class="fas fa-trophy"></i> Processing Summary</h3>
+                            <div id="final-summary"></div>
+                        </div>
+
+                        <div class="results-visualization mt-3">
+                            <h3><i class="fas fa-chart-pie"></i> Key Insights</h3>
+                            <div class="insights-grid">
+                                <div class="insight-card">
+                                    <div class="insight-icon">
+                                        <i class="fas fa-chart-line"></i>
+                                    </div>
+                                    <div class="insight-content">
+                                        <h4>Best Model</h4>
+                                        <p id="best-model-name">-</p>
+                                    </div>
+                                </div>
+                                <div class="insight-card">
+                                    <div class="insight-icon">
+                                        <i class="fas fa-arrow-up"></i>
+                                    </div>
+                                    <div class="insight-content">
+                                        <h4>Accuracy Improvement</h4>
+                                        <p id="accuracy-improvement">-</p>
+                                    </div>
+                                </div>
+                                <div class="insight-card">
+                                    <div class="insight-icon">
+                                        <i class="fas fa-database"></i>
+                                    </div>
+                                    <div class="insight-content">
+                                        <h4>Data Quality</h4>
+                                        <p id="data-quality-score">-</p>
+                                    </div>
+                                </div>
+                                <div class="insight-card">
+                                    <div class="insight-icon">
+                                        <i class="fas fa-clock"></i>
+                                    </div>
+                                    <div class="insight-content">
+                                        <h4>Processing Time</h4>
+                                        <p id="processing-time">-</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="download-options mt-4">
+                            <h3><i class="fas fa-file-download"></i> Download Options</h3>
+                            <div class="download-buttons">
+                                <button id="download-processed" class="btn btn-success">
+                                    <i class="fas fa-file-csv"></i> Download Processed Dataset
+                                </button>
+                                <button id="download-report" class="btn btn-info">
+                                    <i class="fas fa-file-alt"></i> Download Processing Report
+                                </button>
+                                <button id="download-all" class="btn btn-primary">
+                                    <i class="fas fa-file-archive"></i> Download All Results
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="next-steps mt-4">
+                            <h3><i class="fas fa-forward"></i> Next Steps</h3>
+                            <div class="next-steps-grid">
+                                <div class="next-step-card">
+                                    <i class="fas fa-redo"></i>
+                                    <h4>Start New Analysis</h4>
+                                    <p>Clear current data and start with a new dataset</p>
+                                    <button id="start-over" class="btn btn-outline mt-2">
+                                        Start Over
+                                    </button>
+                                </div>
+                                <div class="next-step-card">
+                                    <i class="fas fa-tune"></i>
+                                    <h4>Fine-tune Preprocessing</h4>
+                                    <p>Go back and adjust preprocessing steps</p>
+                                    <button id="back-to-preprocessing" class="btn btn-outline mt-2">
+                                        Adjust Settings
+                                    </button>
+                                </div>
+                                <div class="next-step-card">
+                                    <i class="fas fa-code"></i>
+                                    <h4>Export Pipeline</h4>
+                                    <p>Get Python code for your preprocessing pipeline</p>
+                                    <button id="export-pipeline" class="btn btn-outline mt-2">
+                                        Export Code
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="navigation">
+            <button id="prev-btn" class="btn btn-secondary" disabled>
+                <i class="fas fa-arrow-left"></i> Previous
+            </button>
+            <div class="step-indicator">
+                Step <span id="current-step">1</span> of 5
+            </div>
+            <button id="next-btn" class="btn btn-primary">
+                Next <i class="fas fa-arrow-right"></i>
+            </button>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>ML Data Preprocessor & Model Analyzer © 2024 | Built with Flask & scikit-learn</p>
+            <div class="footer-links">
+                <a href="#" id="show-help"><i class="fas fa-question-circle"></i> Help</a>
+                <a href="#" id="show-about"><i class="fas fa-info-circle"></i> About</a>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Notifications Container -->
+    <div class="notifications-container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p id="loading-message">Processing...</p>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="help-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-question-circle"></i> Help</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="help-section">
+                    <h4>Getting Started</h4>
+                    <p>Upload your dataset (CSV or Excel) and follow the 5-step process:</p>
+                    <ol>
+                        <li><strong>Upload:</strong> Upload your dataset file</li>
+                        <li><strong>Analyze:</strong> Explore dataset statistics</li>
+                        <li><strong>Preprocess:</strong> Clean and transform your data</li>
+                        <li><strong>Train Models:</strong> Compare machine learning models</li>
+                        <li><strong>Results:</strong> View results and download data</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="about-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-info-circle"></i> About</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>This ML Data Preprocessor & Model Analyzer helps you:</p>
+                <ul>
+                    <li>Clean and preprocess datasets</li>
+                    <li>Compare model performance</li>
+                    <li>Export processed data and reports</li>
+                </ul>
+                <p><strong>Tech Stack:</strong> Flask, Python, scikit-learn, Pandas</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
