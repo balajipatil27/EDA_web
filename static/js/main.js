@@ -1,4 +1,4 @@
-// static/js/main.js - Complete and Corrected Version
+// static/js/main.js - Complete and Corrected Version with Column Removal
 
 // Global state
 let currentStep = 1;
@@ -12,10 +12,14 @@ let conversionSteps = [];
 let encodingSteps = [];
 let missingValueSteps = [];
 let outlierSteps = [];
+let scalingSteps = [];
+let featureSteps = [];
 let batchSteps = [];
 let columnTypes = null;
 let suggestions = null;
 let modelResults = null;
+let columnsToRemove = [];
+let columnAnalysis = null;
 
 // DOM Elements
 const stepElements = document.querySelectorAll('.step');
@@ -36,7 +40,7 @@ const targetColumnSelect = document.getElementById('target-column');
 const analyzeBtn = document.getElementById('analyze-btn');
 const dataQualityMetrics = document.getElementById('data-quality-metrics');
 const analysisResults = document.getElementById('analysis-results');
-const columnAnalysis = document.getElementById('column-analysis');
+const columnAnalysisDiv = document.getElementById('column-analysis');
 const quickActions = document.getElementById('quick-actions');
 const preprocessingSuggestions = document.getElementById('preprocessing-suggestions');
 const preprocessingControls = document.getElementById('preprocessing-controls');
@@ -49,6 +53,26 @@ const trainModelsBtn = document.getElementById('train-models-btn');
 const trainingProgress = document.getElementById('training-progress');
 const trainingResults = document.getElementById('training-results');
 const finalResults = document.getElementById('final-results');
+
+// Column removal elements
+const columnRemovalSection = document.getElementById('column-removal-section');
+const columnSelectionGrid = document.getElementById('column-selection-grid');
+const removalSummary = document.getElementById('removal-summary');
+const selectedCount = document.getElementById('selected-count');
+const selectedColumnsList = document.getElementById('selected-columns-list');
+const selectHighMissingBtn = document.getElementById('select-high-missing');
+const selectConstantBtn = document.getElementById('select-constant');
+const clearSelectionBtn = document.getElementById('clear-selection');
+
+// Analysis control elements
+const toggleColumnStatsBtn = document.getElementById('toggle-column-stats');
+const toggleCorrelationsBtn = document.getElementById('toggle-correlations');
+const exportAnalysisBtn = document.getElementById('export-analysis');
+const columnAnalysisSection = document.getElementById('column-analysis-section');
+const statisticsSection = document.getElementById('statistics-section');
+const correlationSection = document.getElementById('correlation-section');
+const basicStatsDiv = document.getElementById('basic-stats');
+const correlationMatrixDiv = document.getElementById('correlation-matrix');
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -117,8 +141,22 @@ function initializeEventListeners() {
     analyzeBtn.addEventListener('click', analyzeDataset);
     targetColumnSelect.addEventListener('change', function() {
         targetColumn = this.value;
-        updateStepState(2);
+        if (targetColumn) {
+            updateStepState(2);
+            // Enable column removal section when target is selected
+            columnRemovalSection.classList.remove('hidden');
+        }
     });
+    
+    // Column removal buttons
+    selectHighMissingBtn.addEventListener('click', selectHighMissingColumns);
+    selectConstantBtn.addEventListener('click', selectConstantColumns);
+    clearSelectionBtn.addEventListener('click', clearColumnSelection);
+    
+    // Analysis controls
+    toggleColumnStatsBtn.addEventListener('click', toggleColumnStats);
+    toggleCorrelationsBtn.addEventListener('click', toggleCorrelations);
+    exportAnalysisBtn.addEventListener('click', exportAnalysis);
 
     // Step 3: Preprocessing
     document.getElementById('quick-clean').addEventListener('click', quickClean);
@@ -126,6 +164,9 @@ function initializeEventListeners() {
     document.getElementById('get-suggestions-btn').addEventListener('click', getPreprocessingSuggestions);
     document.getElementById('add-conversion').addEventListener('click', addConversionStep);
     document.getElementById('add-encoding').addEventListener('click', addEncodingStep);
+    document.getElementById('add-outlier').addEventListener('click', addOutlierStep);
+    document.getElementById('add-scaling').addEventListener('click', addScalingStep);
+    document.getElementById('add-feature').addEventListener('click', addFeatureStep);
     document.getElementById('quick-fill-all').addEventListener('click', quickFillAll);
     document.getElementById('batch-encode-categorical').addEventListener('click', batchEncodeCategorical);
     document.getElementById('batch-convert-numerical').addEventListener('click', batchConvertNumerical);
@@ -255,8 +296,8 @@ function validateCurrentStep() {
             }
             return true;
         case 3:
-            if (preprocessingSteps.length === 0) {
-                if (!confirm('No preprocessing steps selected. Continue anyway?')) {
+            if (preprocessingSteps.length === 0 && columnsToRemove.length === 0) {
+                if (!confirm('No preprocessing steps or columns to remove selected. Continue anyway?')) {
                     return false;
                 }
             }
@@ -421,6 +462,8 @@ function loadDatasetAnalysis() {
     document.getElementById('row-count').textContent = datasetInfo.rows.toLocaleString();
     document.getElementById('col-count').textContent = datasetInfo.columns;
     document.getElementById('dup-count').textContent = datasetInfo.duplicates.toLocaleString();
+    document.getElementById('memory-usage').textContent = datasetInfo.memory_usage_mb ? 
+        datasetInfo.memory_usage_mb.toFixed(2) + ' MB' : 'N/A';
     
     // Populate target column dropdown
     targetColumnSelect.innerHTML = '<option value="">Select a column</option>';
@@ -434,10 +477,178 @@ function loadDatasetAnalysis() {
     // If target column was previously selected, restore it
     if (targetColumn) {
         targetColumnSelect.value = targetColumn;
+        columnRemovalSection.classList.remove('hidden');
     }
+    
+    // Load column selection grid
+    loadColumnSelectionGrid();
     
     // Load quick data quality metrics
     loadDataQualityMetrics();
+}
+
+function loadColumnSelectionGrid() {
+    if (!datasetInfo) return;
+    
+    columnSelectionGrid.innerHTML = '';
+    
+    datasetInfo.column_names.forEach(column => {
+        if (column === targetColumn) return; // Don't allow removing target column
+        
+        const columnDiv = document.createElement('div');
+        columnDiv.className = 'column-checkbox';
+        
+        const checkboxId = `col-${column.replace(/\W/g, '_')}`;
+        const isSelected = columnsToRemove.includes(column);
+        
+        // Determine column type for badge
+        let columnType = 'unknown';
+        let typeBadge = '';
+        
+        if (columnTypes) {
+            if (columnTypes.categorical && columnTypes.categorical.includes(column)) {
+                columnType = 'categorical';
+                typeBadge = '<span class="column-type-badge categorical">Cat</span>';
+            } else if (columnTypes.numerical && columnTypes.numerical.includes(column)) {
+                columnType = 'numerical';
+                typeBadge = '<span class="column-type-badge numerical">Num</span>';
+            } else if (columnTypes.datetime && columnTypes.datetime.includes(column)) {
+                columnType = 'datetime';
+                typeBadge = '<span class="column-type-badge datetime">Date</span>';
+            }
+        }
+        
+        // Get missing percentage for tooltip
+        const missingPct = datasetInfo.missing_percentage ? 
+            (datasetInfo.missing_percentage[column] || 0).toFixed(1) : '0';
+        
+        columnDiv.innerHTML = `
+            <input type="checkbox" id="${checkboxId}" ${isSelected ? 'checked' : ''}>
+            <label for="${checkboxId}" title="Missing: ${missingPct}%">
+                ${column}
+                ${typeBadge}
+            </label>
+        `;
+        
+        // Add event listener
+        const checkbox = columnDiv.querySelector('input');
+        checkbox.addEventListener('change', function() {
+            updateColumnSelection(column, this.checked);
+        });
+        
+        columnSelectionGrid.appendChild(columnDiv);
+    });
+    
+    updateRemovalSummary();
+}
+
+function updateColumnSelection(column, isSelected) {
+    if (isSelected) {
+        if (!columnsToRemove.includes(column)) {
+            columnsToRemove.push(column);
+        }
+    } else {
+        const index = columnsToRemove.indexOf(column);
+        if (index > -1) {
+            columnsToRemove.splice(index, 1);
+        }
+    }
+    
+    updateRemovalSummary();
+}
+
+function updateRemovalSummary() {
+    if (columnsToRemove.length > 0) {
+        removalSummary.classList.remove('hidden');
+        selectedCount.textContent = columnsToRemove.length;
+        
+        selectedColumnsList.innerHTML = '';
+        columnsToRemove.forEach(column => {
+            const tag = document.createElement('div');
+            tag.className = 'selected-column-tag';
+            tag.innerHTML = `
+                ${column}
+                <button onclick="removeColumnFromSelection('${column}')">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            selectedColumnsList.appendChild(tag);
+        });
+    } else {
+        removalSummary.classList.add('hidden');
+    }
+}
+
+function removeColumnFromSelection(column) {
+    const index = columnsToRemove.indexOf(column);
+    if (index > -1) {
+        columnsToRemove.splice(index, 1);
+    }
+    
+    // Uncheck the checkbox
+    const checkboxId = `col-${column.replace(/\W/g, '_')}`;
+    const checkbox = document.getElementById(checkboxId);
+    if (checkbox) {
+        checkbox.checked = false;
+    }
+    
+    updateRemovalSummary();
+}
+
+function selectHighMissingColumns() {
+    if (!datasetInfo || !datasetInfo.missing_percentage) return;
+    
+    columnsToRemove = [];
+    
+    Object.entries(datasetInfo.missing_percentage).forEach(([column, percentage]) => {
+        if (percentage > 50 && column !== targetColumn) {
+            columnsToRemove.push(column);
+            
+            // Check the checkbox
+            const checkboxId = `col-${column.replace(/\W/g, '_')}`;
+            const checkbox = document.getElementById(checkboxId);
+            if (checkbox) {
+                checkbox.checked = true;
+            }
+        }
+    });
+    
+    updateRemovalSummary();
+    showToast(`Selected ${columnsToRemove.length} columns with >50% missing values`, 'success');
+}
+
+function selectConstantColumns() {
+    if (!columnAnalysis) return;
+    
+    columnsToRemove = [];
+    
+    columnAnalysis.forEach(col => {
+        if (col.unique_count <= 1 && col.name !== targetColumn) {
+            columnsToRemove.push(col.name);
+            
+            // Check the checkbox
+            const checkboxId = `col-${col.name.replace(/\W/g, '_')}`;
+            const checkbox = document.getElementById(checkboxId);
+            if (checkbox) {
+                checkbox.checked = true;
+            }
+        }
+    });
+    
+    updateRemovalSummary();
+    showToast(`Selected ${columnsToRemove.length} constant columns`, 'success');
+}
+
+function clearColumnSelection() {
+    columnsToRemove = [];
+    
+    // Uncheck all checkboxes
+    document.querySelectorAll('#column-selection-grid input[type="checkbox"]').forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    
+    updateRemovalSummary();
+    showToast('Column selection cleared', 'info');
 }
 
 function loadDataQualityMetrics() {
@@ -446,13 +657,12 @@ function loadDataQualityMetrics() {
     let missingCount = 0;
     let highMissingCount = 0;
     
-    Object.values(datasetInfo.missing_values).forEach(count => {
-        if (count > 0) missingCount++;
-    });
-    
-    Object.values(datasetInfo.missing_percentage).forEach(percentage => {
-        if (percentage > 50) highMissingCount++;
-    });
+    if (datasetInfo.missing_percentage) {
+        Object.values(datasetInfo.missing_percentage).forEach(percentage => {
+            if (percentage > 0) missingCount++;
+            if (percentage > 50) highMissingCount++;
+        });
+    }
     
     const qualityScore = calculateDataQualityScore();
     
@@ -463,6 +673,7 @@ function loadDataQualityMetrics() {
                 <h4><i class="fas fa-exclamation-triangle"></i> Missing Values</h4>
                 <p><strong>Columns with missing values:</strong> ${missingCount}/${datasetInfo.columns}</p>
                 <p><strong>High missing (>50%):</strong> ${highMissingCount} columns</p>
+                <p><strong>Total missing cells:</strong> ${datasetInfo.missing_values ? Object.values(datasetInfo.missing_values).reduce((a, b) => a + b, 0).toLocaleString() : '0'}</p>
             </div>
             <div class="info-card">
                 <h4><i class="fas fa-clone"></i> Duplicates</h4>
@@ -493,19 +704,21 @@ function calculateDataQualityScore() {
     score -= Math.min(duplicatePercentage * 2, 30);
     
     // Deduct for missing values
-    let totalMissingPercentage = 0;
-    Object.values(datasetInfo.missing_percentage).forEach(percentage => {
-        totalMissingPercentage += percentage;
-    });
-    const avgMissingPercentage = totalMissingPercentage / datasetInfo.columns;
-    score -= Math.min(avgMissingPercentage, 40);
-    
-    // Deduct for columns with >50% missing
-    let highMissingCount = 0;
-    Object.values(datasetInfo.missing_percentage).forEach(percentage => {
-        if (percentage > 50) highMissingCount++;
-    });
-    score -= highMissingCount * 10;
+    if (datasetInfo.missing_percentage) {
+        let totalMissingPercentage = 0;
+        Object.values(datasetInfo.missing_percentage).forEach(percentage => {
+            totalMissingPercentage += percentage;
+        });
+        const avgMissingPercentage = totalMissingPercentage / datasetInfo.columns;
+        score -= Math.min(avgMissingPercentage, 40);
+        
+        // Deduct for columns with >50% missing
+        let highMissingCount = 0;
+        Object.values(datasetInfo.missing_percentage).forEach(percentage => {
+            if (percentage > 50) highMissingCount++;
+        });
+        score -= highMissingCount * 10;
+    }
     
     return Math.max(Math.round(score), 0);
 }
@@ -532,6 +745,7 @@ function analyzeDataset() {
         hideLoading();
         
         if (data.success) {
+            columnAnalysis = data.analysis.column_analysis;
             displayAnalysisResults(data.analysis);
             showToast('Analysis completed successfully', 'success');
         } else {
@@ -547,31 +761,64 @@ function analyzeDataset() {
 
 function displayAnalysisResults(analysis) {
     analysisResults.classList.remove('hidden');
+    columnAnalysisSection.classList.remove('hidden');
+    
+    // Store analysis data
+    columnAnalysis = analysis.column_analysis;
     
     // Display column analysis
-    let columnAnalysisHTML = '<h4>Column Analysis</h4><div class="columns-grid">';
+    displayColumnAnalysis(analysis.column_analysis);
     
-    analysis.column_analysis.forEach(col => {
+    // Display basic statistics if available
+    if (analysis.basic_stats && Object.keys(analysis.basic_stats).length > 0) {
+        displayBasicStatistics(analysis.basic_stats);
+    }
+    
+    // Display correlation matrix if available
+    if (analysis.correlation_matrix && analysis.correlation_matrix.length > 0) {
+        displayCorrelationMatrix(analysis.correlation_matrix);
+    }
+    
+    // Get column types and suggestions for preprocessing
+    getColumnTypes();
+}
+
+function displayColumnAnalysis(columns) {
+    let columnAnalysisHTML = '';
+    
+    columns.forEach(col => {
+        // Determine column type class
+        let typeClass = 'other';
+        if (col.type === 'numerical') {
+            typeClass = 'numerical';
+        } else if (col.type === 'categorical') {
+            typeClass = 'categorical';
+        }
+        
         columnAnalysisHTML += `
             <div class="column-card">
                 <div class="column-header">
                     <h5>${col.name}</h5>
-                    <span class="column-type ${col.type}">${col.type}</span>
+                    <span class="column-type ${typeClass}">${col.type || col.dtype}</span>
                 </div>
                 <div class="column-details">
                     <p><strong>Data Type:</strong> ${col.dtype}</p>
-                    <p><strong>Unique Values:</strong> ${col.unique_values.toLocaleString()}</p>
-                    <p><strong>Missing:</strong> ${col.missing_count} (${col.missing_percentage.toFixed(2)}%)</p>
+                    <p><strong>Total Values:</strong> ${col.total_count ? col.total_count.toLocaleString() : 'N/A'}</p>
+                    <p><strong>Non-Null Values:</strong> ${col.non_null_count ? col.non_null_count.toLocaleString() : 'N/A'}</p>
+                    <p><strong>Missing Values:</strong> ${col.null_count ? col.null_count.toLocaleString() : '0'} (${col.null_percentage ? col.null_percentage.toFixed(2) : '0'}%)</p>
+                    <p><strong>Unique Values:</strong> ${col.unique_count ? col.unique_count.toLocaleString() : 'N/A'}</p>
                     
-                    ${col.type === 'numerical' ? `
-                        <p><strong>Range:</strong> ${col.min !== null ? col.min.toFixed(2) : 'N/A'} - ${col.max !== null ? col.max.toFixed(2) : 'N/A'}</p>
-                        <p><strong>Mean:</strong> ${col.mean !== null ? col.mean.toFixed(2) : 'N/A'}</p>
+                    ${col.type === 'numerical' || col.min !== undefined ? `
+                        <p><strong>Range:</strong> ${col.min !== null && col.min !== undefined ? col.min.toFixed(2) : 'N/A'} - ${col.max !== null && col.max !== undefined ? col.max.toFixed(2) : 'N/A'}</p>
+                        <p><strong>Mean:</strong> ${col.mean !== null && col.mean !== undefined ? col.mean.toFixed(2) : 'N/A'}</p>
+                        <p><strong>Std Dev:</strong> ${col.std !== null && col.std !== undefined ? col.std.toFixed(2) : 'N/A'}</p>
+                        ${col.outlier_count ? `<p><strong>Outliers:</strong> ${col.outlier_count} (${col.outlier_percentage ? col.outlier_percentage.toFixed(2) : '0'}%)</p>` : ''}
                     ` : ''}
                     
-                    ${col.top_values ? `
+                    ${col.type === 'categorical' && col.top_values ? `
                         <p><strong>Top Values:</strong></p>
                         <ul class="top-values">
-                            ${Object.entries(col.top_values).slice(0, 3).map(([val, count]) => 
+                            ${Object.entries(col.top_values).slice(0, 5).map(([val, count]) => 
                                 `<li>${val}: ${count.toLocaleString()}</li>`
                             ).join('')}
                         </ul>
@@ -581,71 +828,101 @@ function displayAnalysisResults(analysis) {
         `;
     });
     
-    columnAnalysisHTML += '</div>';
-    columnAnalysis.innerHTML = columnAnalysisHTML;
+    columnAnalysisDiv.innerHTML = columnAnalysisHTML;
+}
+
+function displayBasicStatistics(stats) {
+    let basicStatsHTML = '<table class="data-table"><thead><tr><th>Column</th><th>Count</th><th>Mean</th><th>Std</th><th>Min</th><th>25%</th><th>50%</th><th>75%</th><th>Max</th></tr></thead><tbody>';
     
-    // Display basic statistics if available
-    if (analysis.basic_stats && Object.keys(analysis.basic_stats).length > 0) {
-        let basicStatsHTML = '<h4>Basic Statistics</h4><div class="table-responsive"><table class="data-table"><thead><tr><th>Column</th><th>Count</th><th>Mean</th><th>Std</th><th>Min</th><th>25%</th><th>50%</th><th>75%</th><th>Max</th></tr></thead><tbody>';
+    for (const [col, colStats] of Object.entries(stats)) {
+        basicStatsHTML += `
+            <tr>
+                <td>${col}</td>
+                <td>${colStats.count ? colStats.count.toLocaleString() : 'N/A'}</td>
+                <td>${colStats.mean ? colStats.mean.toFixed(2) : 'N/A'}</td>
+                <td>${colStats.std ? colStats.std.toFixed(2) : 'N/A'}</td>
+                <td>${colStats.min ? colStats.min.toFixed(2) : 'N/A'}</td>
+                <td>${colStats['25%'] ? colStats['25%'].toFixed(2) : 'N/A'}</td>
+                <td>${colStats['50%'] ? colStats['50%'].toFixed(2) : 'N/A'}</td>
+                <td>${colStats['75%'] ? colStats['75%'].toFixed(2) : 'N/A'}</td>
+                <td>${colStats.max ? colStats.max.toFixed(2) : 'N/A'}</td>
+            </tr>
+        `;
+    }
+    
+    basicStatsHTML += '</tbody></table>';
+    basicStatsDiv.innerHTML = basicStatsHTML;
+}
+
+function displayCorrelationMatrix(correlations) {
+    let correlationHTML = '<table class="data-table"><thead><tr><th>Column 1</th><th>Column 2</th><th>Correlation</th><th>Strength</th></tr></thead><tbody>';
+    
+    correlations.forEach(corr => {
+        const absCorr = Math.abs(corr.correlation);
+        let strength = 'Weak';
+        let strengthClass = 'weak';
         
-        for (const [col, stats] of Object.entries(analysis.basic_stats)) {
-            basicStatsHTML += `
-                <tr>
-                    <td>${col}</td>
-                    <td>${stats.count ? stats.count.toLocaleString() : 'N/A'}</td>
-                    <td>${stats.mean ? stats.mean.toFixed(2) : 'N/A'}</td>
-                    <td>${stats.std ? stats.std.toFixed(2) : 'N/A'}</td>
-                    <td>${stats.min ? stats.min.toFixed(2) : 'N/A'}</td>
-                    <td>${stats['25%'] ? stats['25%'].toFixed(2) : 'N/A'}</td>
-                    <td>${stats['50%'] ? stats['50%'].toFixed(2) : 'N/A'}</td>
-                    <td>${stats['75%'] ? stats['75%'].toFixed(2) : 'N/A'}</td>
-                    <td>${stats.max ? stats.max.toFixed(2) : 'N/A'}</td>
-                </tr>
-            `;
+        if (absCorr > 0.7) {
+            strength = 'Strong';
+            strengthClass = 'strong';
+        } else if (absCorr > 0.3) {
+            strength = 'Moderate';
+            strengthClass = 'moderate';
         }
         
-        basicStatsHTML += '</tbody></table></div>';
-        columnAnalysis.innerHTML += basicStatsHTML;
+        correlationHTML += `
+            <tr>
+                <td>${corr.column1}</td>
+                <td>${corr.column2}</td>
+                <td>${corr.correlation.toFixed(3)}</td>
+                <td><span class="correlation-strength ${strengthClass}">${strength}</span></td>
+            </tr>
+        `;
+    });
+    
+    correlationHTML += '</tbody></table>';
+    correlationMatrixDiv.innerHTML = correlationHTML;
+}
+
+function toggleColumnStats() {
+    statisticsSection.classList.toggle('hidden');
+    if (!statisticsSection.classList.contains('hidden')) {
+        showToast('Basic statistics displayed', 'info');
+    }
+}
+
+function toggleCorrelations() {
+    correlationSection.classList.toggle('hidden');
+    if (!correlationSection.classList.contains('hidden')) {
+        showToast('Correlation matrix displayed', 'info');
+    }
+}
+
+function exportAnalysis() {
+    if (!columnAnalysis) {
+        showToast('No analysis data to export', 'error');
+        return;
     }
     
-    // Display correlation matrix if available
-    if (analysis.correlation_matrix && analysis.correlation_matrix.length > 0) {
-        let correlationHTML = '<h4>Top Correlations</h4><div class="table-responsive"><table class="data-table"><thead><tr><th>Column 1</th><th>Column 2</th><th>Correlation</th><th>Strength</th></tr></thead><tbody>';
-        
-        // Sort by absolute correlation value
-        const sortedCorrelations = [...analysis.correlation_matrix].sort((a, b) => 
-            Math.abs(b.correlation) - Math.abs(a.correlation)
-        ).slice(0, 20);
-        
-        sortedCorrelations.forEach(corr => {
-            const absCorr = Math.abs(corr.correlation);
-            let strength = 'Weak';
-            let strengthClass = 'weak';
-            
-            if (absCorr > 0.7) {
-                strength = 'Strong';
-                strengthClass = 'strong';
-            } else if (absCorr > 0.3) {
-                strength = 'Moderate';
-                strengthClass = 'moderate';
-            }
-            
-            correlationHTML += `
-                <tr>
-                    <td>${corr.column1}</td>
-                    <td>${corr.column2}</td>
-                    <td>${corr.correlation.toFixed(3)}</td>
-                    <td><span class="correlation-strength ${strengthClass}">${strength}</span></td>
-                </tr>
-            `;
-        });
-        
-        correlationHTML += '</tbody></table></div>';
-        columnAnalysis.innerHTML += correlationHTML;
-    }
+    const analysisData = {
+        dataset_info: datasetInfo,
+        column_analysis: columnAnalysis,
+        columns_to_remove: columnsToRemove,
+        timestamp: new Date().toISOString()
+    };
     
-    // Get column types and suggestions for preprocessing
-    getColumnTypes();
+    const blob = new Blob([JSON.stringify(analysisData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'dataset_analysis.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    
+    URL.revokeObjectURL(url);
+    showToast('Analysis exported successfully', 'success');
 }
 
 function getColumnTypes() {
@@ -703,20 +980,35 @@ function loadPreprocessingControls() {
 function populatePreprocessingDropdowns() {
     const convertColumnSelect = document.getElementById('convert-column');
     const encodeColumnSelect = document.getElementById('encode-column');
+    const outlierColumnSelect = document.getElementById('outlier-column');
+    const scaleColumnSelect = document.getElementById('scale-column');
+    const featureColumn1Select = document.getElementById('feature-column1');
+    const featureColumn2Select = document.getElementById('feature-column2');
     
-    convertColumnSelect.innerHTML = '<option value="">Select column</option>';
-    encodeColumnSelect.innerHTML = '<option value="">Select column</option>';
+    // Clear all dropdowns
+    const dropdowns = [convertColumnSelect, encodeColumnSelect, outlierColumnSelect, 
+                      scaleColumnSelect, featureColumn1Select, featureColumn2Select];
     
-    datasetInfo.column_names.forEach(column => {
-        // For conversion dropdown
-        const option1 = document.createElement('option');
-        option1.value = column;
-        option1.textContent = column;
-        convertColumnSelect.appendChild(option1.cloneNode(true));
+    dropdowns.forEach(select => {
+        select.innerHTML = '<option value="">Select column</option>';
+    });
+    
+    // Populate with available columns
+    const availableColumns = datasetInfo.column_names.filter(col => !columnsToRemove.includes(col));
+    
+    availableColumns.forEach(column => {
+        // Skip target column for feature operations
+        if (column === targetColumn && (featureColumn1Select || featureColumn2Select)) {
+            return;
+        }
         
-        // For encoding dropdown
-        const option2 = option1.cloneNode(true);
-        encodeColumnSelect.appendChild(option2);
+        // For all dropdowns
+        dropdowns.forEach(select => {
+            const option = document.createElement('option');
+            option.value = column;
+            option.textContent = column;
+            select.appendChild(option.cloneNode(true));
+        });
     });
 }
 
@@ -724,6 +1016,27 @@ function displayPreprocessingSuggestions() {
     if (!suggestions) return;
     
     let suggestionsHTML = '<h3><i class="fas fa-lightbulb"></i> Preprocessing Suggestions</h3><div class="suggestions-grid">';
+    
+    // Column removal suggestions
+    if (suggestions.column_removal_suggestions && suggestions.column_removal_suggestions.length > 0) {
+        suggestionsHTML += `
+            <div class="suggestion-category">
+                <h4><i class="fas fa-trash"></i> Column Removal Suggested</h4>
+                <p>The following columns might need to be removed:</p>
+                <ul class="suggestion-list">
+                    ${suggestions.column_removal_suggestions.map(suggestion => `
+                        <li>
+                            <strong>${suggestion.column}</strong>
+                            <span class="suggestion-method">${suggestion.reason}</span>
+                            <button class="btn btn-small btn-outline" onclick="addColumnToRemove('${suggestion.column}')">
+                                <i class="fas fa-plus"></i> Select
+                            </button>
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+        `;
+    }
     
     // Encoding suggestions
     if (suggestions.encoding_suggestions && suggestions.encoding_suggestions.length > 0) {
@@ -788,9 +1101,38 @@ function displayPreprocessingSuggestions() {
         `;
     }
     
+    // Missing value suggestions
+    if (suggestions.missing_value_suggestions && suggestions.missing_value_suggestions.length > 0) {
+        suggestionsHTML += `
+            <div class="suggestion-category">
+                <h4><i class="fas fa-tint"></i> Missing Value Handling</h4>
+                <p>The following columns have missing values:</p>
+                <ul class="suggestion-list">
+                    ${suggestions.missing_value_suggestions.slice(0, 10).map(suggestion => `
+                        <li>
+                            <strong>${suggestion.column}</strong>
+                            <span>${suggestion.null_count} missing (${suggestion.null_percentage.toFixed(2)}%)</span>
+                            <span class="suggestion-method">Suggested: ${suggestion.suggested_action}</span>
+                        </li>
+                    `).join('')}
+                    ${suggestions.missing_value_suggestions.length > 10 ? 
+                        `<li>... and ${suggestions.missing_value_suggestions.length - 10} more columns with missing values</li>` : ''}
+                </ul>
+            </div>
+        `;
+    }
+    
     suggestionsHTML += '</div>';
     preprocessingSuggestions.innerHTML = suggestionsHTML;
     preprocessingSuggestions.classList.remove('hidden');
+}
+
+function addColumnToRemove(column) {
+    if (!columnsToRemove.includes(column)) {
+        columnsToRemove.push(column);
+        updateRemovalSummary();
+        showToast(`Added ${column} to removal list`, 'success');
+    }
 }
 
 function addSuggestionEncoding(column, method) {
@@ -806,13 +1148,8 @@ function addDataTypeConversion(column, dtype) {
 }
 
 function addOutlierRemoval(column) {
-    addPreprocessingStep({
-        type: 'remove_outliers',
-        column: column
-    });
-    
-    updateOutlierList();
-    updatePreprocessingStepsSummary();
+    document.getElementById('outlier-column').value = column;
+    addOutlierStep();
 }
 
 function addConversionStep() {
@@ -821,6 +1158,11 @@ function addConversionStep() {
     
     if (!column) {
         showToast('Please select a column', 'error');
+        return;
+    }
+    
+    if (columnsToRemove.includes(column)) {
+        showToast(`Cannot add step for column "${column}" as it is marked for removal`, 'warning');
         return;
     }
     
@@ -846,6 +1188,11 @@ function addEncodingStep() {
         return;
     }
     
+    if (columnsToRemove.includes(column)) {
+        showToast(`Cannot add step for column "${column}" as it is marked for removal`, 'warning');
+        return;
+    }
+    
     addPreprocessingStep({
         type: 'encoding',
         column: column,
@@ -859,12 +1206,111 @@ function addEncodingStep() {
     document.getElementById('encode-column').value = '';
 }
 
+function addOutlierStep() {
+    const column = document.getElementById('outlier-column').value;
+    const method = document.getElementById('outlier-method').value;
+    
+    if (!column) {
+        showToast('Please select a column', 'error');
+        return;
+    }
+    
+    if (columnsToRemove.includes(column)) {
+        showToast(`Cannot add step for column "${column}" as it is marked for removal`, 'warning');
+        return;
+    }
+    
+    addPreprocessingStep({
+        type: 'remove_outliers',
+        column: column,
+        method: method
+    });
+    
+    updateOutlierList();
+    updatePreprocessingStepsSummary();
+    
+    // Clear selection
+    document.getElementById('outlier-column').value = '';
+}
+
+function addScalingStep() {
+    const column = document.getElementById('scale-column').value;
+    const method = document.getElementById('scale-method').value;
+    
+    if (!column) {
+        showToast('Please select a column', 'error');
+        return;
+    }
+    
+    if (columnsToRemove.includes(column)) {
+        showToast(`Cannot add step for column "${column}" as it is marked for removal`, 'warning');
+        return;
+    }
+    
+    addPreprocessingStep({
+        type: 'scale_column',
+        column: column,
+        method: method
+    });
+    
+    updateScalingList();
+    updatePreprocessingStepsSummary();
+    
+    // Clear selection
+    document.getElementById('scale-column').value = '';
+}
+
+function addFeatureStep() {
+    const column1 = document.getElementById('feature-column1').value;
+    const operation = document.getElementById('feature-operation').value;
+    const column2 = document.getElementById('feature-column2').value;
+    const newColumn = document.getElementById('new-feature-name').value;
+    
+    if (!column1 || !newColumn) {
+        showToast('Please select at least one column and provide a new column name', 'error');
+        return;
+    }
+    
+    if (columnsToRemove.includes(column1) || (column2 && columnsToRemove.includes(column2))) {
+        showToast('Cannot create feature from columns marked for removal', 'warning');
+        return;
+    }
+    
+    const step = {
+        type: 'create_feature',
+        column1: column1,
+        operation: operation,
+        new_column: newColumn
+    };
+    
+    if (column2) {
+        step.column2 = column2;
+    }
+    
+    addPreprocessingStep(step);
+    updateFeatureList();
+    updatePreprocessingStepsSummary();
+    
+    // Clear selection
+    document.getElementById('feature-column1').value = '';
+    document.getElementById('feature-column2').value = '';
+    document.getElementById('new-feature-name').value = '';
+}
+
 function quickFillAll() {
     const method = document.getElementById('quick-fill-method').value;
     
     if (!columnTypes || !columnTypes.numerical) return;
     
-    columnTypes.numerical.forEach(column => {
+    // Only include columns not marked for removal
+    const columnsToFill = columnTypes.numerical.filter(col => !columnsToRemove.includes(col));
+    
+    if (columnsToFill.length === 0) {
+        showToast('No numeric columns available for filling', 'info');
+        return;
+    }
+    
+    columnsToFill.forEach(column => {
         addPreprocessingStep({
             type: 'handle_missing',
             column: column,
@@ -875,7 +1321,7 @@ function quickFillAll() {
     updateMissingValueList();
     updatePreprocessingStepsSummary();
     
-    showToast(`Added ${method} filling for all numeric columns`, 'success');
+    showToast(`Added ${method} filling for ${columnsToFill.length} numeric columns`, 'success');
 }
 
 function batchEncodeCategorical() {
@@ -883,16 +1329,24 @@ function batchEncodeCategorical() {
     
     if (!columnTypes || !columnTypes.categorical) return;
     
+    // Only include columns not marked for removal
+    const columnsToEncode = columnTypes.categorical.filter(col => !columnsToRemove.includes(col));
+    
+    if (columnsToEncode.length === 0) {
+        showToast('No categorical columns available for encoding', 'info');
+        return;
+    }
+    
     addPreprocessingStep({
         type: 'batch_encoding',
-        columns: columnTypes.categorical,
+        columns: columnsToEncode,
         method: method
     });
     
     updateBatchStepsList();
     updatePreprocessingStepsSummary();
     
-    showToast(`Added ${method} encoding for all categorical columns`, 'success');
+    showToast(`Added ${method} encoding for ${columnsToEncode.length} categorical columns`, 'success');
 }
 
 function batchConvertNumerical() {
@@ -905,7 +1359,8 @@ function batchConvertNumerical() {
     if (suggestions && suggestions.dtype_conversion_suggestions) {
         columnsToConvert = suggestions.dtype_conversion_suggestions
             .filter(s => s.suggested_dtype === 'numeric')
-            .map(s => s.column);
+            .map(s => s.column)
+            .filter(col => !columnsToRemove.includes(col));
     }
     
     if (columnsToConvert.length > 0) {
@@ -927,17 +1382,26 @@ function batchConvertNumerical() {
 function batchRemoveOutliers() {
     if (!columnTypes || !columnTypes.numerical) return;
     
-    columnTypes.numerical.forEach(column => {
+    // Only include columns not marked for removal
+    const columnsToProcess = columnTypes.numerical.filter(col => !columnsToRemove.includes(col));
+    
+    if (columnsToProcess.length === 0) {
+        showToast('No numerical columns available for outlier removal', 'info');
+        return;
+    }
+    
+    columnsToProcess.forEach(column => {
         addPreprocessingStep({
             type: 'remove_outliers',
-            column: column
+            column: column,
+            method: 'iqr'
         });
     });
     
     updateOutlierList();
     updatePreprocessingStepsSummary();
     
-    showToast(`Added outlier removal for all numerical columns`, 'success');
+    showToast(`Added outlier removal for ${columnsToProcess.length} numerical columns`, 'success');
 }
 
 function addPreprocessingStep(step) {
@@ -952,6 +1416,10 @@ function addPreprocessingStep(step) {
         missingValueSteps.push(step);
     } else if (step.type === 'remove_outliers') {
         outlierSteps.push(step);
+    } else if (step.type === 'scale_column') {
+        scalingSteps.push(step);
+    } else if (step.type === 'create_feature') {
+        featureSteps.push(step);
     } else if (step.type.includes('batch')) {
         batchSteps.push(step);
     }
@@ -1058,7 +1526,7 @@ function updateOutlierList() {
             const stepDiv = document.createElement('div');
             stepDiv.className = 'preprocessing-step';
             stepDiv.innerHTML = `
-                <span><i class="fas fa-filter"></i> Remove outliers from "${step.column}"</span>
+                <span><i class="fas fa-filter"></i> Remove outliers from "${step.column}" (${step.method})</span>
                 <button class="btn btn-small btn-danger" onclick="removePreprocessingStep('outlier', ${index})">
                     <i class="fas fa-times"></i>
                 </button>
@@ -1066,6 +1534,15 @@ function updateOutlierList() {
             listDiv.appendChild(stepDiv);
         });
     }
+}
+
+function updateScalingList() {
+    const listDiv = document.getElementById('outlier-list'); // Reusing same list for now
+    // Can create separate list if needed
+}
+
+function updateFeatureList() {
+    // Implementation for feature list display
 }
 
 function updateBatchStepsList() {
@@ -1178,8 +1655,9 @@ function removeAllOutlierSteps() {
 
 function updatePreprocessingStepsSummary() {
     const summaryDiv = document.getElementById('preprocessing-steps-summary');
+    const totalSteps = preprocessingSteps.length + (columnsToRemove.length > 0 ? 1 : 0);
     
-    if (preprocessingSteps.length === 0) {
+    if (totalSteps === 0) {
         summaryDiv.innerHTML = '<p>No steps added yet. Add steps from above sections.</p>';
         return;
     }
@@ -1187,13 +1665,14 @@ function updatePreprocessingStepsSummary() {
     let summaryHTML = `
         <div class="steps-summary">
             <div class="summary-header">
-                <h5>Total Steps: ${preprocessingSteps.length}</h5>
-                <span class="steps-count">${preprocessingSteps.length} steps</span>
+                <h5>Total Steps: ${totalSteps}</h5>
+                <span class="steps-count">${totalSteps} steps</span>
             </div>
             <div class="steps-breakdown">
     `;
     
     const stepCounts = {
+        'Column Removal': columnsToRemove.length > 0 ? 1 : 0,
         'Data Cleaning': preprocessingSteps.filter(s => 
             s.type === 'drop_high_missing' || s.type === 'remove_duplicates'
         ).length,
@@ -1202,7 +1681,9 @@ function updatePreprocessingStepsSummary() {
         'Encoding': encodingSteps.length + 
             (batchSteps.filter(s => s.type === 'batch_encoding').length > 0 ? 1 : 0),
         'Missing Values': missingValueSteps.length,
-        'Outlier Removal': outlierSteps.length
+        'Outlier Removal': outlierSteps.length,
+        'Feature Engineering': featureSteps.length,
+        'Scaling': scalingSteps.length
     };
     
     Object.entries(stepCounts).forEach(([category, count]) => {
@@ -1223,6 +1704,12 @@ function updatePreprocessingStepsSummary() {
                 <ul class="steps-list">
     `;
     
+    // Add column removal step if any
+    if (columnsToRemove.length > 0) {
+        summaryHTML += `<li>Remove ${columnsToRemove.length} columns: ${columnsToRemove.slice(0, 3).join(', ')}${columnsToRemove.length > 3 ? '...' : ''}</li>`;
+    }
+    
+    // Add preprocessing steps
     preprocessingSteps.slice(0, 3).forEach(step => {
         let stepDescription = '';
         switch(step.type) {
@@ -1242,7 +1729,13 @@ function updatePreprocessingStepsSummary() {
                 stepDescription = `Fill missing values in "${step.column}" with ${step.method}`;
                 break;
             case 'remove_outliers':
-                stepDescription = `Remove outliers from "${step.column}"`;
+                stepDescription = `Remove outliers from "${step.column}" using ${step.method}`;
+                break;
+            case 'scale_column':
+                stepDescription = `Scale "${step.column}" using ${step.method} scaling`;
+                break;
+            case 'create_feature':
+                stepDescription = `Create "${step.new_column}" from ${step.column1} ${step.operation} ${step.column2 || ''}`;
                 break;
             case 'batch_encoding':
                 stepDescription = `Batch ${step.method} encoding (${step.columns.length} columns)`;
@@ -1255,8 +1748,9 @@ function updatePreprocessingStepsSummary() {
         summaryHTML += `<li>${stepDescription}</li>`;
     });
     
-    if (preprocessingSteps.length > 3) {
-        summaryHTML += `<li>... and ${preprocessingSteps.length - 3} more</li>`;
+    const remainingSteps = totalSteps - Math.min(3, preprocessingSteps.length + (columnsToRemove.length > 0 ? 1 : 0));
+    if (remainingSteps > 0) {
+        summaryHTML += `<li>... and ${remainingSteps} more</li>`;
     }
     
     summaryHTML += `
@@ -1269,9 +1763,9 @@ function updatePreprocessingStepsSummary() {
 }
 
 function clearAllSteps() {
-    if (preprocessingSteps.length === 0) return;
+    if (preprocessingSteps.length === 0 && columnsToRemove.length === 0) return;
     
-    if (!confirm('Are you sure you want to clear all preprocessing steps?')) {
+    if (!confirm('Are you sure you want to clear all preprocessing steps and column selections?')) {
         return;
     }
     
@@ -1280,16 +1774,21 @@ function clearAllSteps() {
     encodingSteps = [];
     missingValueSteps = [];
     outlierSteps = [];
+    scalingSteps = [];
+    featureSteps = [];
     batchSteps = [];
+    columnsToRemove = [];
     
+    // Update UI
     updateConversionList();
     updateEncodingList();
     updateMissingValueList();
     updateOutlierList();
     updateBatchStepsList();
     updatePreprocessingStepsSummary();
+    updateRemovalSummary();
     
-    showToast('All preprocessing steps cleared', 'success');
+    showToast('All preprocessing steps and column selections cleared', 'success');
 }
 
 function quickClean() {
@@ -1307,7 +1806,8 @@ function quickClean() {
     
     // Add missing value handling for numerical columns
     if (columnTypes && columnTypes.numerical) {
-        columnTypes.numerical.forEach(column => {
+        const columnsToFill = columnTypes.numerical.filter(col => !columnsToRemove.includes(col));
+        columnsToFill.forEach(column => {
             addPreprocessingStep({
                 type: 'handle_missing',
                 column: column,
@@ -1332,6 +1832,8 @@ function autoPreprocess() {
     encodingSteps = [];
     missingValueSteps = [];
     outlierSteps = [];
+    scalingSteps = [];
+    featureSteps = [];
     batchSteps = [];
     
     // Add basic cleaning
@@ -1341,17 +1843,20 @@ function autoPreprocess() {
     // Add encoding for categorical columns
     if (suggestions.encoding_suggestions && suggestions.encoding_suggestions.length > 0) {
         suggestions.encoding_suggestions.forEach(suggestion => {
-            addPreprocessingStep({
-                type: 'encoding',
-                column: suggestion.column,
-                method: suggestion.suggested_method
-            });
+            if (!columnsToRemove.includes(suggestion.column)) {
+                addPreprocessingStep({
+                    type: 'encoding',
+                    column: suggestion.column,
+                    method: suggestion.suggested_method
+                });
+            }
         });
     }
     
     // Add missing value handling for numerical columns
     if (columnTypes && columnTypes.numerical) {
-        columnTypes.numerical.forEach(column => {
+        const columnsToFill = columnTypes.numerical.filter(col => !columnsToRemove.includes(col));
+        columnsToFill.forEach(column => {
             addPreprocessingStep({
                 type: 'handle_missing',
                 column: column,
@@ -1363,10 +1868,11 @@ function autoPreprocess() {
     // Add outlier removal for columns with outliers
     if (suggestions.outlier_suggestions && suggestions.outlier_suggestions.length > 0) {
         suggestions.outlier_suggestions.forEach(suggestion => {
-            if (suggestion.outlier_count > 0) {
+            if (!columnsToRemove.includes(suggestion.column) && suggestion.outlier_count > 0) {
                 addPreprocessingStep({
                     type: 'remove_outliers',
-                    column: suggestion.column
+                    column: suggestion.column,
+                    method: 'iqr'
                 });
             }
         });
@@ -1375,11 +1881,13 @@ function autoPreprocess() {
     // Add data type conversions
     if (suggestions.dtype_conversion_suggestions && suggestions.dtype_conversion_suggestions.length > 0) {
         suggestions.dtype_conversion_suggestions.forEach(suggestion => {
-            addPreprocessingStep({
-                type: 'change_dtype',
-                column: suggestion.column,
-                dtype: suggestion.suggested_dtype
-            });
+            if (!columnsToRemove.includes(suggestion.column)) {
+                addPreprocessingStep({
+                    type: 'change_dtype',
+                    column: suggestion.column,
+                    dtype: suggestion.suggested_dtype
+                });
+            }
         });
     }
     
@@ -1406,8 +1914,8 @@ function applyPreprocessingSteps() {
         return;
     }
     
-    if (preprocessingSteps.length === 0) {
-        if (!confirm('No preprocessing steps selected. Apply basic cleaning only?')) {
+    if (preprocessingSteps.length === 0 && columnsToRemove.length === 0) {
+        if (!confirm('No preprocessing steps or columns to remove selected. Apply basic cleaning only?')) {
             return;
         }
         quickClean();
@@ -1432,7 +1940,8 @@ function applyPreprocessingSteps() {
         body: JSON.stringify({
             filename: originalFile,
             steps: preprocessingSteps,
-            target_column: targetColumn
+            target_column: targetColumn,
+            columns_to_remove: columnsToRemove
         })
     })
     .then(response => response.json())
@@ -1462,9 +1971,13 @@ function displayPreprocessingResults(data) {
     let reportHTML = '<div class="report-section"><h4>Processing Steps</h4><ul class="report-list">';
     
     data.preprocessing_report.forEach(step => {
+        const statusIcon = step.status === 'success' ? 'fa-check-circle text-success' : 
+                          step.status === 'error' ? 'fa-times-circle text-danger' : 
+                          'fa-info-circle text-info';
+        
         reportHTML += `
             <li>
-                <i class="fas fa-check-circle text-success"></i>
+                <i class="fas ${statusIcon}"></i>
                 <div>
                     <strong>${step.step}</strong>
                     <p class="step-details">${step.details}</p>
@@ -1480,12 +1993,15 @@ function displayPreprocessingResults(data) {
     document.getElementById('processed-rows').textContent = data.processed_info.rows.toLocaleString();
     document.getElementById('processed-cols').textContent = data.processed_info.columns;
     document.getElementById('processed-missing').textContent = data.processed_info.missing_values;
+    document.getElementById('processed-memory').textContent = data.processed_info.memory_usage_mb ? 
+        data.processed_info.memory_usage_mb.toFixed(2) + ' MB' : 'N/A';
     
     // Update performance metrics
     const metrics = data.processed_info.performance_metrics;
     document.getElementById('rows-removed').textContent = metrics.rows_removed || 0;
     document.getElementById('cols-removed').textContent = metrics.columns_removed || 0;
     document.getElementById('outliers-removed').textContent = metrics.outliers_removed || 0;
+    document.getElementById('missing-filled').textContent = metrics.missing_values_filled || 0;
     
     // Enable step 4
     stepElements.forEach(step => {
@@ -1815,10 +2331,11 @@ function downloadReport() {
         return;
     }
     
-    // Create a simple report
+    // Create a comprehensive report
     const report = {
         dataset_info: datasetInfo,
         preprocessing_steps: preprocessingSteps,
+        columns_removed: columnsToRemove,
         model_results: modelResults,
         timestamp: new Date().toISOString()
     };
@@ -1868,10 +2385,14 @@ function startOver() {
         encodingSteps = [];
         missingValueSteps = [];
         outlierSteps = [];
+        scalingSteps = [];
+        featureSteps = [];
         batchSteps = [];
         columnTypes = null;
         suggestions = null;
         modelResults = null;
+        columnsToRemove = [];
+        columnAnalysis = null;
         
         // Reset UI
         stepElements.forEach(step => {
@@ -1897,6 +2418,13 @@ function startOver() {
         // Reset target column select
         targetColumnSelect.innerHTML = '<option value="">Select a column</option>';
         
+        // Reset analysis sections
+        columnAnalysisDiv.innerHTML = '';
+        basicStatsDiv.innerHTML = '';
+        correlationMatrixDiv.innerHTML = '';
+        statisticsSection.classList.add('hidden');
+        correlationSection.classList.add('hidden');
+        
         // Go back to step 1
         showStep(1);
         
@@ -1905,8 +2433,8 @@ function startOver() {
 }
 
 function exportPipeline() {
-    if (!preprocessingSteps || preprocessingSteps.length === 0) {
-        showToast('No preprocessing steps to export', 'error');
+    if (preprocessingSteps.length === 0 && columnsToRemove.length === 0) {
+        showToast('No preprocessing steps or columns to remove to export', 'error');
         return;
     }
     
@@ -1914,10 +2442,12 @@ function exportPipeline() {
 # Generated on ${new Date().toISOString()}
 # Dataset: ${datasetInfo ? datasetInfo.filename : 'unknown'}
 # Target column: ${targetColumn || 'not specified'}
+# Columns removed: ${columnsToRemove.length}
 
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from scipy import stats
 
 def preprocess_pipeline(df):
     """
@@ -1929,6 +2459,16 @@ def preprocess_pipeline(df):
     # Preprocessing steps
 `;
     
+    // Add column removal
+    if (columnsToRemove.length > 0) {
+        pythonCode += `
+    # Remove selected columns
+    columns_to_remove = ${JSON.stringify(columnsToRemove)}
+    df_processed = df_processed.drop(columns=[col for col in columns_to_remove if col in df_processed.columns])
+    print(f"Removed {len([col for col in columns_to_remove if col in df_processed.columns])} columns")
+`;
+    }
+    
     preprocessingSteps.forEach(step => {
         pythonCode += `\n    # Step: ${step.type}\n`;
         
@@ -1938,11 +2478,15 @@ def preprocess_pipeline(df):
                 pythonCode += `    missing_percentage = (df_processed.isnull().sum() / len(df_processed)) * 100\n`;
                 pythonCode += `    columns_to_drop = missing_percentage[missing_percentage > ${step.threshold || 50}].index.tolist()\n`;
                 pythonCode += `    df_processed.drop(columns=columns_to_drop, inplace=True)\n`;
+                pythonCode += `    print(f"Dropped {len(columns_to_drop)} columns with >${step.threshold || 50}% missing values")\n`;
                 break;
                 
             case 'remove_duplicates':
                 pythonCode += `    # Remove duplicate rows\n`;
+                pythonCode += `    before = len(df_processed)\n`;
                 pythonCode += `    df_processed.drop_duplicates(inplace=True)\n`;
+                pythonCode += `    after = len(df_processed)\n`;
+                pythonCode += `    print(f"Removed {before - after} duplicate rows")\n`;
                 break;
                 
             case 'change_dtype':
@@ -1953,6 +2497,8 @@ def preprocess_pipeline(df):
                     pythonCode += `    df_processed['${step.column}'] = pd.to_datetime(df_processed['${step.column}'], errors='coerce')\n`;
                 } else if (step.dtype === 'category') {
                     pythonCode += `    df_processed['${step.column}'] = df_processed['${step.column}'].astype('category')\n`;
+                } else if (step.dtype === 'string') {
+                    pythonCode += `    df_processed['${step.column}'] = df_processed['${step.column}'].astype('str')\n`;
                 }
                 break;
                 
@@ -1961,17 +2507,24 @@ def preprocess_pipeline(df):
                     pythonCode += `    # Apply Label Encoding to column '${step.column}'\n`;
                     pythonCode += `    le = LabelEncoder()\n`;
                     pythonCode += `    df_processed['${step.column}'] = le.fit_transform(df_processed['${step.column}'].astype(str))\n`;
+                    pythonCode += `    print(f"Applied Label Encoding to '{step.column}' with {len(le.classes_)} classes")\n`;
                 } else if (step.method === 'onehot') {
                     pythonCode += `    # Apply One-Hot Encoding to column '${step.column}'\n`;
-                    pythonCode += `    dummies = pd.get_dummies(df_processed['${step.column}'], prefix='${step.column}', drop_first=True)\n`;
+                    pythonCode += `    dummies = pd.get_dummies(df_processed['${step.column}'], prefix='${step.column}')\n`;
                     pythonCode += `    df_processed = pd.concat([df_processed.drop('${step.column}', axis=1), dummies], axis=1)\n`;
+                    pythonCode += `    print(f"Applied One-Hot Encoding to '{step.column}', created {len(dummies.columns)} new columns")\n`;
                 }
                 break;
                 
             case 'handle_missing':
                 pythonCode += `    # Handle missing values in column '${step.column}' using ${step.method}\n`;
+                pythonCode += `    missing_count = df_processed['${step.column}'].isnull().sum()\n`;
+                
                 if (step.method === 'drop') {
+                    pythonCode += `    before = len(df_processed)\n`;
                     pythonCode += `    df_processed = df_processed.dropna(subset=['${step.column}'])\n`;
+                    pythonCode += `    after = len(df_processed)\n`;
+                    pythonCode += `    print(f"Dropped {before - after} rows with missing values in '{step.column}'")\n`;
                 } else {
                     let fillValue = '0';
                     if (step.method === 'mean') {
@@ -1980,37 +2533,113 @@ def preprocess_pipeline(df):
                         fillValue = `df_processed['${step.column}'].median()`;
                     } else if (step.method === 'mode') {
                         fillValue = `df_processed['${step.column}'].mode()[0] if not df_processed['${step.column}'].mode().empty else 0`;
+                    } else if (step.method === 'forward_fill') {
+                        pythonCode += `    df_processed['${step.column}'].fillna(method='ffill', inplace=True)\n`;
+                        fillValue = null;
+                    } else if (step.method === 'backward_fill') {
+                        pythonCode += `    df_processed['${step.column}'].fillna(method='bfill', inplace=True)\n`;
+                        fillValue = null;
+                    } else if (step.method === 'interpolate') {
+                        pythonCode += `    df_processed['${step.column}'].interpolate(method='linear', inplace=True)\n`;
+                        fillValue = null;
                     }
-                    pythonCode += `    df_processed['${step.column}'].fillna(${fillValue}, inplace=True)\n`;
+                    
+                    if (fillValue) {
+                        pythonCode += `    df_processed['${step.column}'].fillna(${fillValue}, inplace=True)\n`;
+                    }
+                    pythonCode += `    print(f"Filled {missing_count} missing values in '{step.column}' using ${step.method}")\n`;
                 }
                 break;
                 
             case 'remove_outliers':
-                pythonCode += `    # Remove outliers from column '${step.column}' using IQR method\n`;
-                pythonCode += `    Q1 = df_processed['${step.column}'].quantile(0.25)\n`;
-                pythonCode += `    Q3 = df_processed['${step.column}'].quantile(0.75)\n`;
-                pythonCode += `    IQR = Q3 - Q1\n`;
-                pythonCode += `    lower_bound = Q1 - 1.5 * IQR\n`;
-                pythonCode += `    upper_bound = Q3 + 1.5 * IQR\n`;
-                pythonCode += `    df_processed = df_processed[(df_processed['${step.column}'] >= lower_bound) & (df_processed['${step.column}'] <= upper_bound)]\n`;
+                pythonCode += `    # Remove outliers from column '${step.column}' using ${step.method || 'iqr'} method\n`;
+                if (step.method === 'zscore') {
+                    pythonCode += `    z_scores = np.abs(stats.zscore(df_processed['${step.column}'].dropna()))\n`;
+                    pythonCode += `    threshold = ${step.threshold || 3}\n`;
+                    pythonCode += `    before = len(df_processed)\n`;
+                    pythonCode += `    df_processed = df_processed[(z_scores < threshold) | df_processed['${step.column}'].isna()]\n`;
+                    pythonCode += `    after = len(df_processed)\n`;
+                } else {
+                    pythonCode += `    Q1 = df_processed['${step.column}'].quantile(0.25)\n`;
+                    pythonCode += `    Q3 = df_processed['${step.column}'].quantile(0.75)\n`;
+                    pythonCode += `    IQR = Q3 - Q1\n`;
+                    pythonCode += `    lower_bound = Q1 - 1.5 * IQR\n`;
+                    pythonCode += `    upper_bound = Q3 + 1.5 * IQR\n`;
+                    pythonCode += `    before = len(df_processed)\n`;
+                    pythonCode += `    df_processed = df_processed[(df_processed['${step.column}'] >= lower_bound) & (df_processed['${step.column}'] <= upper_bound)]\n`;
+                    pythonCode += `    after = len(df_processed)\n`;
+                }
+                pythonCode += `    print(f"Removed {before - after} outliers from '{step.column}'")\n`;
+                break;
+                
+            case 'scale_column':
+                pythonCode += `    # Scale column '${step.column}' using ${step.method} scaling\n`;
+                if (step.method === 'standard') {
+                    pythonCode += `    scaler = StandardScaler()\n`;
+                    pythonCode += `    df_processed['${step.column}'] = scaler.fit_transform(df_processed[['${step.column}']])\n`;
+                } else if (step.method === 'minmax') {
+                    pythonCode += `    min_val = df_processed['${step.column}'].min()\n`;
+                    pythonCode += `    max_val = df_processed['${step.column}'].max()\n`;
+                    pythonCode += `    if max_val > min_val:\n`;
+                    pythonCode += `        df_processed['${step.column}'] = (df_processed['${step.column}'] - min_val) / (max_val - min_val)\n`;
+                }
+                break;
+                
+            case 'create_feature':
+                pythonCode += `    # Create new feature '${step.new_column}' from '${step.column1}' ${step.operation} ${step.column2 || ''}\n`;
+                if (step.operation === 'add' && step.column2) {
+                    pythonCode += `    df_processed['${step.new_column}'] = df_processed['${step.column1}'] + df_processed['${step.column2}']\n`;
+                } else if (step.operation === 'subtract' && step.column2) {
+                    pythonCode += `    df_processed['${step.new_column}'] = df_processed['${step.column1}'] - df_processed['${step.column2}']\n`;
+                } else if (step.operation === 'multiply' && step.column2) {
+                    pythonCode += `    df_processed['${step.new_column}'] = df_processed['${step.column1}'] * df_processed['${step.column2}']\n`;
+                } else if (step.operation === 'divide' && step.column2) {
+                    pythonCode += `    df_processed['${step.new_column}'] = df_processed['${step.column1}'] / df_processed['${step.column2}'].replace(0, np.nan)\n`;
+                } else if (step.operation === 'square') {
+                    pythonCode += `    df_processed['${step.new_column}'] = df_processed['${step.column1}'] ** 2\n`;
+                } else if (step.operation === 'sqrt') {
+                    pythonCode += `    df_processed['${step.new_column}'] = np.sqrt(df_processed['${step.column1}'].abs())\n`;
+                } else if (step.operation === 'log') {
+                    pythonCode += `    df_processed['${step.new_column}'] = np.log(df_processed['${step.column1}'].replace(0, np.nan).abs() + 1)\n`;
+                }
                 break;
                 
             case 'batch_encoding':
                 pythonCode += `    # Batch ${step.method} encoding for ${step.columns.length} columns\n`;
-                step.columns.forEach(col => {
-                    if (step.method === 'label') {
-                        pythonCode += `    le = LabelEncoder()\n`;
-                        pythonCode += `    df_processed['${col}'] = le.fit_transform(df_processed['${col}'].astype(str))\n`;
-                    } else if (step.method === 'onehot') {
-                        pythonCode += `    dummies = pd.get_dummies(df_processed['${col}'], prefix='${col}', drop_first=True)\n`;
-                        pythonCode += `    df_processed = pd.concat([df_processed.drop('${col}', axis=1), dummies], axis=1)\n`;
-                    }
-                });
+                pythonCode += `    for col in ${JSON.stringify(step.columns)}:\n`;
+                pythonCode += `        if col in df_processed.columns:\n`;
+                if (step.method === 'label') {
+                    pythonCode += `            le = LabelEncoder()\n`;
+                    pythonCode += `            df_processed[col] = le.fit_transform(df_processed[col].astype(str))\n`;
+                } else if (step.method === 'onehot') {
+                    pythonCode += `            dummies = pd.get_dummies(df_processed[col], prefix=col)\n`;
+                    pythonCode += `            df_processed = pd.concat([df_processed.drop(col, axis=1), dummies], axis=1)\n`;
+                }
+                break;
+                
+            case 'batch_dtype_conversion':
+                pythonCode += `    # Batch conversion to ${step.dtype} for ${step.columns.length} columns\n`;
+                pythonCode += `    for col in ${JSON.stringify(step.columns)}:\n`;
+                pythonCode += `        if col in df_processed.columns:\n`;
+                if (step.dtype === 'numeric') {
+                    pythonCode += `            df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')\n`;
+                } else if (step.dtype === 'datetime') {
+                    pythonCode += `            df_processed[col] = pd.to_datetime(df_processed[col], errors='coerce')\n`;
+                } else if (step.dtype === 'category') {
+                    pythonCode += `            df_processed[col] = df_processed[col].astype('category')\n`;
+                }
                 break;
         }
     });
     
-    pythonCode += `\n    return df_processed\n`;
+    pythonCode += `
+    return df_processed
+
+# Usage example:
+# df = pd.read_csv('your_dataset.csv')
+# df_processed = preprocess_pipeline(df)
+# df_processed.to_csv('processed_dataset.csv', index=False)
+`;
     
     // Create download
     const pythonBlob = new Blob([pythonCode], { type: 'text/x-python' });
@@ -2075,3 +2704,5 @@ window.addOutlierRemoval = addOutlierRemoval;
 window.removePreprocessingStep = removePreprocessingStep;
 window.removeMissingValueSteps = removeMissingValueSteps;
 window.removeAllOutlierSteps = removeAllOutlierSteps;
+window.removeColumnFromSelection = removeColumnFromSelection;
+window.addColumnToRemove = addColumnToRemove;
