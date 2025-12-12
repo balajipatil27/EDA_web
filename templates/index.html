@@ -100,6 +100,7 @@
                                 <p><strong>Rows:</strong> <span id="row-count"></span></p>
                                 <p><strong>Columns:</strong> <span id="col-count"></span></p>
                                 <p><strong>Duplicates:</strong> <span id="dup-count"></span></p>
+                                <p><strong>Memory Usage:</strong> <span id="memory-usage"></span></p>
                             </div>
                             <div class="info-card">
                                 <h4><i class="fas fa-columns"></i> Target Column</h4>
@@ -116,11 +117,72 @@
                             </div>
                         </div>
 
+                        <!-- Column Selection for Removal -->
+                        <div id="column-removal-section" class="hidden mt-4">
+                            <h3><i class="fas fa-trash"></i> Column Selection for Removal</h3>
+                            <div class="info-box">
+                                <i class="fas fa-info-circle"></i>
+                                <p>Select columns to remove from the dataset before preprocessing</p>
+                            </div>
+                            
+                            <div class="column-selection-grid" id="column-selection-grid">
+                                <!-- Dynamic content will be added here -->
+                            </div>
+                            
+                            <div id="removal-summary" class="removal-summary hidden">
+                                <h4><i class="fas fa-exclamation-triangle"></i> Columns Selected for Removal</h4>
+                                <p><strong id="selected-count">0</strong> columns selected for removal</p>
+                                <div id="selected-columns-list" class="selected-columns-list">
+                                    <!-- Selected columns will appear here -->
+                                </div>
+                            </div>
+                            
+                            <div class="form-group mt-3">
+                                <button id="select-high-missing" class="btn btn-small btn-warning">
+                                    <i class="fas fa-filter"></i> Select Columns with >50% Missing
+                                </button>
+                                <button id="select-constant" class="btn btn-small btn-warning">
+                                    <i class="fas fa-braille"></i> Select Constant Columns
+                                </button>
+                                <button id="clear-selection" class="btn btn-small btn-secondary">
+                                    <i class="fas fa-times"></i> Clear Selection
+                                </button>
+                            </div>
+                        </div>
+
                         <div id="data-quality-metrics" class="analysis-section hidden"></div>
 
                         <div id="analysis-results" class="hidden">
                             <h3><i class="fas fa-search"></i> Detailed Analysis</h3>
-                            <div id="column-analysis" class="analysis-section"></div>
+                            <div class="analysis-controls mb-3">
+                                <button id="toggle-column-stats" class="btn btn-small btn-info">
+                                    <i class="fas fa-table"></i> Show/Hide Column Statistics
+                                </button>
+                                <button id="toggle-correlations" class="btn btn-small btn-info">
+                                    <i class="fas fa-project-diagram"></i> Show/Hide Correlations
+                                </button>
+                                <button id="export-analysis" class="btn btn-small btn-success">
+                                    <i class="fas fa-download"></i> Export Analysis
+                                </button>
+                            </div>
+                            
+                            <!-- Column Analysis Section -->
+                            <div id="column-analysis-section" class="analysis-section">
+                                <h4><i class="fas fa-columns"></i> Column Analysis</h4>
+                                <div id="column-analysis" class="columns-grid"></div>
+                            </div>
+                            
+                            <!-- Statistics Section -->
+                            <div id="statistics-section" class="analysis-section hidden">
+                                <h4><i class="fas fa-chart-bar"></i> Basic Statistics</h4>
+                                <div id="basic-stats" class="table-responsive"></div>
+                            </div>
+                            
+                            <!-- Correlation Section -->
+                            <div id="correlation-section" class="analysis-section hidden">
+                                <h4><i class="fas fa-project-diagram"></i> Top Correlations</h4>
+                                <div id="correlation-matrix" class="table-responsive"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -173,6 +235,7 @@
                                             <option value="numeric">Numeric</option>
                                             <option value="category">Category</option>
                                             <option value="datetime">Date/Time</option>
+                                            <option value="string">String</option>
                                         </select>
                                         <button id="add-conversion" class="btn btn-small btn-primary">
                                             <i class="fas fa-plus"></i> Add
@@ -212,6 +275,9 @@
                                             <option value="median">Median</option>
                                             <option value="mode">Mode</option>
                                             <option value="zero">Zero</option>
+                                            <option value="forward_fill">Forward Fill</option>
+                                            <option value="backward_fill">Backward Fill</option>
+                                            <option value="interpolate">Interpolate</option>
                                         </select>
                                         <button id="quick-fill-all" class="btn btn-small btn-info">
                                             <i class="fas fa-magic"></i> Fill All Numeric
@@ -222,7 +288,66 @@
 
                             <div class="option-group">
                                 <h4><i class="fas fa-filter"></i> Outlier Removal (Numerical Columns Only)</h4>
+                                <div class="form-group">
+                                    <label>Select column and method:</label>
+                                    <div class="form-row">
+                                        <select id="outlier-column" class="form-control">
+                                        </select>
+                                        <select id="outlier-method" class="form-control">
+                                            <option value="iqr">IQR Method</option>
+                                            <option value="zscore">Z-Score Method</option>
+                                        </select>
+                                        <button id="add-outlier" class="btn btn-small btn-warning">
+                                            <i class="fas fa-plus"></i> Add
+                                        </button>
+                                    </div>
+                                </div>
                                 <div id="outlier-list"></div>
+                            </div>
+
+                            <div class="option-group">
+                                <h4><i class="fas fa-chart-line"></i> Feature Scaling</h4>
+                                <div class="form-group">
+                                    <label>Select column and scaling method:</label>
+                                    <div class="form-row">
+                                        <select id="scale-column" class="form-control">
+                                        </select>
+                                        <select id="scale-method" class="form-control">
+                                            <option value="standard">Standard Scaler</option>
+                                            <option value="minmax">Min-Max Scaler</option>
+                                        </select>
+                                        <button id="add-scaling" class="btn btn-small btn-info">
+                                            <i class="fas fa-plus"></i> Add
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="option-group">
+                                <h4><i class="fas fa-cogs"></i> Feature Engineering</h4>
+                                <div class="form-group">
+                                    <label>Create new feature:</label>
+                                    <div class="form-row">
+                                        <select id="feature-column1" class="form-control">
+                                        </select>
+                                        <select id="feature-operation" class="form-control">
+                                            <option value="add">Add (+)</option>
+                                            <option value="subtract">Subtract (-)</option>
+                                            <option value="multiply">Multiply (×)</option>
+                                            <option value="divide">Divide (÷)</option>
+                                            <option value="square">Square (x²)</option>
+                                            <option value="sqrt">Square Root (√x)</option>
+                                            <option value="log">Log (log(x))</option>
+                                        </select>
+                                        <select id="feature-column2" class="form-control">
+                                            <option value="">Select second column (optional)</option>
+                                        </select>
+                                        <input type="text" id="new-feature-name" class="form-control" placeholder="New column name">
+                                        <button id="add-feature" class="btn btn-small btn-success">
+                                            <i class="fas fa-plus"></i> Create
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="option-group">
@@ -275,12 +400,14 @@
                                     <p><strong>Rows:</strong> <span id="processed-rows"></span></p>
                                     <p><strong>Columns:</strong> <span id="processed-cols"></span></p>
                                     <p><strong>Remaining Missing Values:</strong> <span id="processed-missing"></span></p>
+                                    <p><strong>Memory Usage:</strong> <span id="processed-memory"></span></p>
                                 </div>
                                 <div class="info-card">
                                     <h4><i class="fas fa-chart-line"></i> Processing Performance</h4>
                                     <p><strong>Rows Removed:</strong> <span id="rows-removed">0</span></p>
                                     <p><strong>Columns Removed:</strong> <span id="cols-removed">0</span></p>
                                     <p><strong>Outliers Removed:</strong> <span id="outliers-removed">0</span></p>
+                                    <p><strong>Missing Values Filled:</strong> <span id="missing-filled">0</span></p>
                                 </div>
                             </div>
                         </div>
@@ -529,11 +656,22 @@
                     <p>Upload your dataset (CSV or Excel) and follow the 5-step process:</p>
                     <ol>
                         <li><strong>Upload:</strong> Upload your dataset file</li>
-                        <li><strong>Analyze:</strong> Explore dataset statistics</li>
+                        <li><strong>Analyze:</strong> Explore dataset statistics and select columns to remove</li>
                         <li><strong>Preprocess:</strong> Clean and transform your data</li>
                         <li><strong>Train Models:</strong> Compare machine learning models</li>
                         <li><strong>Results:</strong> View results and download data</li>
                     </ol>
+                </div>
+                
+                <div class="help-section">
+                    <h4>Column Removal Feature</h4>
+                    <p>In Step 2, you can select columns to remove before preprocessing:</p>
+                    <ul>
+                        <li>Select individual columns using checkboxes</li>
+                        <li>Use "Select Columns with >50% Missing" to quickly select problematic columns</li>
+                        <li>Use "Select Constant Columns" to remove columns with no variance</li>
+                        <li>Selected columns will be removed during preprocessing</li>
+                    </ul>
                 </div>
             </div>
         </div>
@@ -551,6 +689,13 @@
                     <li>Clean and preprocess datasets</li>
                     <li>Compare model performance</li>
                     <li>Export processed data and reports</li>
+                </ul>
+                <p><strong>New Features:</strong></p>
+                <ul>
+                    <li>Column removal functionality</li>
+                    <li>Enhanced detailed analysis with statistics</li>
+                    <li>Improved error handling</li>
+                    <li>Better visualization of results</li>
                 </ul>
                 <p><strong>Tech Stack:</strong> Flask, Python, scikit-learn, Pandas</p>
             </div>
